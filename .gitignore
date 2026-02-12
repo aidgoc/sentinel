@@ -1,0 +1,62 @@
+# Sentinel .gitignore
+
+# Sensitive credentials - NEVER commit these!
+.sentinel_env
+*.env
+config/credentials.yaml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Database (contains personal conversations)
+*.db
+*.sqlite
+*.sqlite3
+
+# Captures (personal images)
+captures/
+sentinel_captures/
+
+# Models (too large for git)
+models/*.onnx
+models/*.pt
+models/*.bin
+*.onnx
+*.pt
+
+# Cache
+.cache/
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backups
+*.bak
+*.backup

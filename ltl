@@ -1,0 +1,228 @@
+#!/bin/bash
+# Sentinel - Local Talking LLM Command
+# Run from anywhere with: ltl
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Load environment
+if [ -f "$HOME/.sentinel_env" ]; then
+    source "$HOME/.sentinel_env"
+else
+    echo -e "${RED}Error: ~/.sentinel_env not found${NC}"
+    exit 1
+fi
+
+# Sentinel home
+SENTINEL_HOME="${SENTINEL_HOME:-$HOME/sentinel}"
+VENV="$SENTINEL_HOME/.venv"
+
+# Check if venv exists
+if [ ! -d "$VENV" ]; then
+    echo -e "${RED}Error: Virtual environment not found at $VENV${NC}"
+    echo -e "${YELLOW}Run: cd $SENTINEL_HOME && python3.11 -m venv .venv${NC}"
+    exit 1
+fi
+
+# Activate virtual environment
+source "$VENV/bin/activate"
+
+# Parse command
+CMD="${1:-bot}"
+
+case "$CMD" in
+    bot|telegram|start)
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}🛡️  Sentinel Telegram Bot${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo -e "${GREEN}Starting Telegram bot...${NC}"
+        echo -e "${YELLOW}Commands available:${NC}"
+        echo "  /start  - Initialize bot"
+        echo "  /wake   - Trigger vision capture"
+        echo "  /status - System health"
+        echo "  /memory - Conversation history"
+        echo ""
+        echo -e "${CYAN}Press Ctrl+C to stop${NC}"
+        echo ""
+
+        cd "$SENTINEL_HOME"
+        python3 skills/telegram_bot.py
+        ;;
+
+    vision|capture|cam)
+        echo -e "${CYAN}📸 Running vision capture...${NC}"
+        cd "$SENTINEL_HOME"
+        echo '{}' | python3 skills/vision_skill.py | python3 -m json.tool
+
+        # Show captured image
+        LATEST_DIR="$HOME/sentinel_captures/$(date +%Y-%m-%d)"
+        if [ -d "$LATEST_DIR" ]; then
+            LATEST_IMG=$(ls -t "$LATEST_DIR"/*.jpg 2>/dev/null | head -1)
+            if [ -n "$LATEST_IMG" ]; then
+                echo ""
+                echo -e "${GREEN}✓ Image saved: $LATEST_IMG${NC}"
+            fi
+        fi
+        ;;
+
+    chat|conversation|talk)
+        echo -e "${CYAN}💬 Starting text conversation...${NC}"
+        echo -e "${YELLOW}(Use 'ltl voice' for voice mode)${NC}"
+        echo ""
+        cd "$SENTINEL_HOME"
+        python3 skills/voice_chat.py
+        ;;
+
+    voice|speak|listen)
+        echo -e "${CYAN}🎤 Starting voice conversation...${NC}"
+        echo -e "${YELLOW}Speak naturally. Say 'goodbye' to exit.${NC}"
+        echo ""
+        cd "$SENTINEL_HOME"
+        python3 skills/voice_chat.py --voice
+        ;;
+
+    status|health)
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}🛡️  Sentinel System Status${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+
+        # Check Ollama
+        if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+            echo -e "Ollama:     ${GREEN}✓ Running${NC}"
+            MODELS=$(curl -s http://localhost:11434/api/tags | jq -r '.models[].name' | wc -l)
+            echo -e "Models:     ${GREEN}$MODELS loaded${NC}"
+        else
+            echo -e "Ollama:     ${RED}✗ Offline${NC}"
+        fi
+
+        # Check YOLO model
+        if [ -f "$SENTINEL_HOME/models/yolov8n.onnx" ]; then
+            SIZE=$(du -h "$SENTINEL_HOME/models/yolov8n.onnx" | cut -f1)
+            echo -e "YOLO Model: ${GREEN}✓ Ready ($SIZE)${NC}"
+        else
+            echo -e "YOLO Model: ${RED}✗ Not found${NC}"
+        fi
+
+        # Check camera
+        if [ -e "/dev/video0" ]; then
+            echo -e "Camera:     ${GREEN}✓ /dev/video0${NC}"
+        else
+            echo -e "Camera:     ${YELLOW}⚠ Not found${NC}"
+        fi
+
+        # Check captures
+        TODAY="$HOME/sentinel_captures/$(date +%Y-%m-%d)"
+        if [ -d "$TODAY" ]; then
+            COUNT=$(ls "$TODAY"/*.jpg 2>/dev/null | wc -l)
+            echo -e "Captures:   ${GREEN}$COUNT today${NC}"
+        else
+            echo -e "Captures:   ${YELLOW}0 today${NC}"
+        fi
+
+        # Check memory
+        FREE_GB=$(free -g | awk '/^Mem:/{print $4}')
+        TOTAL_GB=$(free -g | awk '/^Mem:/{print $2}')
+        echo -e "Memory:     ${GREEN}${FREE_GB}GB free / ${TOTAL_GB}GB total${NC}"
+
+        # Check database
+        if [ -f "$HOME/.openclaw-sentinel/sentinel_memory.db" ]; then
+            DB_SIZE=$(du -h "$HOME/.openclaw-sentinel/sentinel_memory.db" | cut -f1)
+            echo -e "Database:   ${GREEN}✓ Ready ($DB_SIZE)${NC}"
+        else
+            echo -e "Database:   ${YELLOW}⚠ Not initialized${NC}"
+        fi
+
+        echo ""
+        ;;
+
+    test)
+        echo -e "${CYAN}🧪 Running tests...${NC}"
+        echo ""
+
+        cd "$SENTINEL_HOME"
+        source .venv/bin/activate
+
+        # Test 1: Vision
+        echo -e "${YELLOW}[1/3] Testing vision skill...${NC}"
+        if echo '{}' | python3 skills/vision_skill.py > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Vision skill working${NC}"
+        else
+            echo -e "${RED}✗ Vision skill failed${NC}"
+        fi
+
+        # Test 2: Ollama
+        echo -e "${YELLOW}[2/3] Testing Ollama...${NC}"
+        if curl -s http://localhost:11434/api/tags > /dev/null; then
+            echo -e "${GREEN}✓ Ollama running${NC}"
+        else
+            echo -e "${RED}✗ Ollama offline${NC}"
+        fi
+
+        # Test 3: Packages
+        echo -e "${YELLOW}[3/3] Testing Python packages...${NC}"
+        if python3 -c "import cv2, onnxruntime, ollama, telegram" 2>/dev/null; then
+            echo -e "${GREEN}✓ All packages installed${NC}"
+        else
+            echo -e "${RED}✗ Missing packages${NC}"
+        fi
+
+        echo ""
+        echo -e "${GREEN}Tests complete!${NC}"
+        ;;
+
+    logs|log)
+        echo -e "${CYAN}📜 Showing recent captures...${NC}"
+        TODAY="$HOME/sentinel_captures/$(date +%Y-%m-%d)"
+        if [ -d "$TODAY" ]; then
+            ls -lht "$TODAY" | head -10
+        else
+            echo "No captures today"
+        fi
+        ;;
+
+    help|--help|-h)
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}🛡️  Sentinel - Local Talking LLM${NC}"
+        echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "Usage: ltl [command]"
+        echo ""
+        echo "Commands:"
+        echo "  bot, telegram, start   Start Telegram bot (default)"
+        echo "  chat, conversation     Chat with Sentinel (text)"
+        echo "  voice, speak, listen   Chat with Sentinel (voice)"
+        echo "  vision, capture, cam   Take a photo and detect persons"
+        echo "  status, health         Show system status"
+        echo "  test                   Run integration tests"
+        echo "  logs, log              Show recent captures"
+        echo "  help                   Show this help"
+        echo ""
+        echo "Examples:"
+        echo "  ltl                    Start Telegram bot"
+        echo "  ltl chat               Text conversation"
+        echo "  ltl voice              Voice conversation 🎤"
+        echo "  ltl vision             Take a photo"
+        echo "  ltl status             Check system health"
+        echo ""
+        echo "Documentation:"
+        echo "  README:     $SENTINEL_HOME/README.md"
+        echo "  Deployment: $SENTINEL_HOME/DEPLOYMENT.md"
+        echo "  Status:     $SENTINEL_HOME/FINAL_STATUS.md"
+        echo ""
+        ;;
+
+    *)
+        echo -e "${RED}Unknown command: $CMD${NC}"
+        echo "Run 'ltl help' for usage"
+        exit 1
+        ;;
+esac

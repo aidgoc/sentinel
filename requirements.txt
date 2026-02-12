@@ -1,0 +1,30 @@
+# Sentinel Python Dependencies
+# HP Pavilion x360: i7-8550U, 12GB RAM, MX130
+
+# Core
+opencv-python>=4.8.0
+numpy>=1.24.0
+pillow>=10.0.0
+pyyaml>=6.0
+
+# YOLO Detection
+onnxruntime-gpu>=1.16.0  # CUDA support for MX130
+ultralytics>=8.0.0       # For YOLO export
+
+# LLM Integration
+ollama>=0.1.0
+
+# Embeddings & RAG
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+jq>=1.6.0  # JSON parsing in bash (system package)
+
+# Optional: Telegram Bot
+# python-telegram-bot>=20.0
+
+# Development
+pytest>=7.4.0
+ruff>=0.1.0

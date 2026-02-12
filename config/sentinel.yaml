@@ -1,0 +1,119 @@
+# Sentinel Configuration - Ambient Intelligence Agent
+# Based on PicoClaw/OpenClaw architecture
+
+agent:
+  name: "Sentinel"
+  profile: "sentinel"
+  workspace: "~/.openclaw/workspace-sentinel"
+
+# LLM Backend Configuration
+llm:
+  provider: "ollama"
+  base_url: "http://127.0.0.1:11434"
+  model: "qwen2.5:3b"
+  temperature: 0.7
+  timeout: 30
+
+  # Cloud fallback when offline or OOM
+  fallback:
+    provider: "anthropic"
+    model: "claude-3-haiku-20240307"
+    api_key: "${ANTHROPIC_API_KEY}"  # Injected via environment
+
+# Vision Configuration
+vision:
+  enabled: true
+  camera_device: 0  # /dev/video0
+  capture_resolution: [1280, 720]
+  jpeg_quality: 85
+
+  # YOLO Detection
+  detector:
+    model: "yolov8n"
+    onnx_path: "~/sentinel/models/yolov8n.onnx"
+    device: "cuda:0"  # MX130 GPU
+    confidence_threshold: 0.85
+    temporal_frames: 3  # Anti-flicker: require 3 consecutive detections
+
+  # Storage
+  storage:
+    base_path: "~/sentinel_captures"
+    retention_days: 7
+    format: "YYYY-MM-DD/HH-MM-SS.jpg"
+
+# Conversation Protocol
+conversation:
+  enabled: true
+  trigger: "person_detected"
+
+  questions:
+    - id: "task_identification"
+      text: "What task are you performing?"
+      type: "open_ended"
+      required: true
+
+    - id: "safety_confirmation"
+      text: "Are safety protocols confirmed?"
+      type: "boolean"
+      required: true
+
+    - id: "tool_requirements"
+      text: "Do you require tool access?"
+      type: "conditional"
+      condition: "safety_confirmed"
+
+  # Graceful degradation
+  degradation:
+    no_internet: "local_only"
+    low_confidence: "skip_questioning"
+    false_positive_cooldown: 300  # 5 minutes
+
+# Memory Configuration (SQLite + Vector)
+memory:
+  database_path: "~/.openclaw-sentinel/sentinel_memory.db"
+  vector_enabled: true
+  vector_dimension: 384  # all-MiniLM-L6-v2
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  embedding_device: "cpu"
+
+  # Retention
+  max_conversations: 1000
+  max_age_days: 30
+
+# Telegram Integration
+telegram:
+  enabled: true
+  bot_token: "${TELEGRAM_BOT_TOKEN}"  # Injected via environment
+  allowed_users: []  # Empty = owner only
+
+  commands:
+    wake: "Trigger immediate vision capture"
+    status: "System health and resource usage"
+    memory: "Search conversation history"
+    stats: "Performance metrics"
+
+# Heartbeat Scheduler
+scheduler:
+  enabled: true
+  heartbeat_interval: 60  # seconds
+  skill: "vision_capture"
+
+# Resource Monitoring
+resources:
+  memory_limit_gb: 10  # Leave 2GB for system
+  vram_limit_mb: 2048  # MX130 constraint
+  cpu_limit_percent: 80
+
+# Logging
+logging:
+  level: "INFO"
+  file: "~/sentinel/logs/sentinel.log"
+  rotation: "5MB"
+  retention: 3
+
+# Security
+security:
+  allow_command_execution: false
+  validate_image_paths: true
+  secrets_from_env: true
+  apparmor_profile: "/etc/apparmor.d/sentinel"

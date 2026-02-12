@@ -1,0 +1,102 @@
+# Sentinel Docker Compose - Production Deployment
+# Engineer #4: Security & DevOps
+
+version: '3.8'
+
+services:
+  sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sentinel:latest
+    container_name: sentinel
+
+    # Environment variables (secrets injected at runtime)
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OLLAMA_HOST=http://ollama:11434
+
+    # Volumes
+    volumes:
+      - ./models:/data/models:ro
+      - captures:/data/captures:rw
+      - logs:/data/logs:rw
+      - memory:/home/sentinel/.openclaw-sentinel:rw
+      - /dev/video0:/dev/video0  # Camera access
+
+    # Resource limits (12GB system)
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 10G
+        reservations:
+          memory: 2G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]  # MX130 access
+
+    # Security
+    security_opt:
+      - no-new-privileges:true
+      - apparmor:sentinel-profile
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_READ_SEARCH  # SQLite access
+    read_only: false  # Need write for captures
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+    # Network
+    networks:
+      - sentinel-net
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Depends on Ollama
+    depends_on:
+      - ollama
+
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sentinel-ollama
+
+    volumes:
+      - ollama-data:/root/.ollama
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+
+    networks:
+      - sentinel-net
+
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  sentinel-net:
+    driver: bridge
+
+volumes:
+  captures:
+    driver: local
+  logs:
+    driver: local
+  memory:
+    driver: local
+  ollama-data:
+    driver: local

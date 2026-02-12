@@ -1,0 +1,228 @@
+# Sentinel Safety Protocols - Workflow State Machines
+# Engineer #5: Product Designer & Workflow Engineer
+
+workflows:
+  # Default safety check workflow
+  default_safety_check:
+    name: "Standard Safety Protocol"
+    trigger:
+      type: "skill_output"
+      skill: "vision_capture"
+      condition: "person_present == true"
+
+    steps:
+      - id: "q1_task_identification"
+        question: "What task are you performing?"
+        type: "open_ended"
+        store_vector: true
+        timeout: 300  # 5 minutes for user reply
+        on_timeout: "abort_conversation"
+
+      - id: "q2_safety_confirmation"
+        question: "Are safety protocols confirmed?"
+        type: "boolean"
+        required: true
+        validation: ["YES", "NO", "CONFIRMED", "NOT CONFIRMED"]
+        on_no: "escalate_warning"
+        on_yes: "continue"
+
+      - id: "q3_tool_requirements"
+        question: "Do you require tool access or documentation?"
+        type: "conditional"
+        condition: "q1_contains(['maintenance', 'repair', 'tool'])"
+        then: "ask_question"
+        else: "skip_to_completion"
+
+    completion:
+      action: "store_summary"
+      vectorize: true
+      notify: "telegram"
+      reset_state: true
+
+    error_handling:
+      no_response: "log_and_retry_once"
+      invalid_response: "ask_clarification"
+      system_error: "abort_and_notify"
+
+  # High-priority task workflow
+  critical_task_check:
+    name: "Critical Task Safety Protocol"
+    trigger:
+      type: "keyword_match"
+      keywords: ["crane", "heavy", "lift", "electrical", "height"]
+
+    steps:
+      - id: "q1_task_identification"
+        question: "What critical task are you performing?"
+        type: "open_ended"
+        required: true
+
+      - id: "q2_safety_gear_check"
+        question: "Confirm all required safety gear is in use?"
+        type: "boolean"
+        required: true
+        on_no: "block_and_escalate"
+
+      - id: "q3_supervisor_present"
+        question: "Is a supervisor present and informed?"
+        type: "boolean"
+        required: true
+        on_no: "require_notification"
+
+      - id: "q4_emergency_plan"
+        question: "Have you reviewed the emergency stop procedures?"
+        type: "boolean"
+        required: true
+
+    completion:
+      action: "store_critical_summary"
+      priority: "high"
+      notify: ["telegram", "log_alert"]
+
+# Graceful Degradation Rules
+degradation:
+  no_internet:
+    behavior: "local_only"
+    skip_steps: ["cloud_tool_access"]
+    fallback_llm: "phi3:mini"  # Lightweight fallback
+    notification: "Operating in offline mode"
+
+  low_light:
+    trigger: "vision_confidence < 0.5"
+    behavior: "skip_vision"
+    alternative: "audio_only_mode"  # Future: wake word detection
+    notification: "Vision degraded, switching to audio"
+
+  false_positive:
+    trigger: "user_reply_contains(['no one', 'nobody', 'false alarm'])"
+    action: "cooldown"
+    duration: 300  # 5 minutes
+    notification: "False positive detected, pausing monitoring"
+
+  low_memory:
+    trigger: "available_ram_gb < 2"
+    action: "reduce_frequency"
+    heartbeat_interval: 300  # Slow down to 5 minutes
+    notification: "Low memory, reducing capture frequency"
+
+  ollama_offline:
+    trigger: "ollama_connection_failed"
+    action: "use_cloud_fallback"
+    cloud_provider: "anthropic"
+    notification: "Local LLM unavailable, using cloud"
+
+# Human-in-the-Loop Settings
+human_interaction:
+  blocking_mode: true  # Pause heartbeat during conversation
+  max_wait_time: 600   # 10 minutes before timeout
+  retry_on_timeout: false
+  emergency_override_command: "/stop"
+
+  reply_validation:
+    boolean_questions: ["yes", "no", "confirmed", "denied"]
+    open_ended_min_length: 3
+    auto_retry_on_invalid: true
+    max_retries: 2
+
+# Cooldown Rules
+cooldowns:
+  after_false_positive:
+    duration: 300  # 5 minutes
+    apply_to: "vision_capture"
+
+  after_completed_conversation:
+    duration: 60  # 1 minute
+    apply_to: "conversation_trigger"
+
+  after_error:
+    duration: 120  # 2 minutes
+    apply_to: "failed_skill"
+
+# Testing Matrices
+testing:
+  stress_test:
+    duration: "48h"
+    metrics:
+      - "capture_latency"
+      - "false_positive_rate"
+      - "memory_growth"
+      - "disk_usage"
+      - "conversation_completion_rate"
+
+    targets:
+      capture_latency: "<500ms"
+      false_positive_rate: "<1%"
+      memory_growth: "<10MB/hour"
+      conversation_completion_rate: ">95%"
+
+  integration_tests:
+    - name: "Vision to Conversation Flow"
+      steps:
+        - trigger: "person_detected"
+        - expect: "question_asked"
+        - input: "user_reply"
+        - expect: "conversation_progresses"
+
+    - name: "Graceful Degradation - Offline"
+      steps:
+        - action: "disconnect_network"
+        - trigger: "person_detected"
+        - expect: "local_llm_only"
+        - expect: "no_cloud_calls"
+
+    - name: "False Positive Handling"
+      steps:
+        - trigger: "person_detected"
+        - input: "nobody here"
+        - expect: "cooldown_activated"
+        - expect: "no_captures_for_5min"
+
+    - name: "Emergency Stop"
+      steps:
+        - trigger: "person_detected"
+        - during: "conversation"
+        - action: "telegram_command /stop"
+        - expect: "conversation_aborted"
+        - expect: "state_reset"
+
+# Performance Benchmarks (HP Pavilion x360)
+benchmarks:
+  target_hardware:
+    cpu: "i7-8550U"
+    ram: "12GB"
+    gpu: "MX130 (4GB VRAM)"
+
+  expected_performance:
+    picoclaw_boot: "<1s"
+    picoclaw_memory: "<10MB"
+    vision_pipeline: "<500ms"
+    yolo_inference: "<50ms"
+    ollama_response: "<2s"
+    sqlite_query: "<100ms"
+
+  memory_budget:
+    yolo_vram: "200MB"
+    ollama_ram: "2GB"
+    sqlite_ram: "500MB"
+    system_overhead: "4GB"
+    reserved_headroom: "4.5GB"
+
+# Logging and Monitoring
+monitoring:
+  log_levels:
+    vision: "INFO"
+    conversation: "INFO"
+    memory: "WARNING"
+    security: "WARNING"
+
+  alerts:
+    disk_full: "90%"
+    memory_high: "85%"
+    capture_failure_rate: ">5%"
+    conversation_timeout_rate: ">10%"
+
+  metrics_collection:
+    interval: 60  # seconds
+    retention: "7d"
+    export_format: "json"
+    storage: "~/sentinel/logs/metrics.jsonl"
