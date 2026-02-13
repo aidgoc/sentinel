@@ -48,7 +48,8 @@ class VoiceChat:
         try:
             model_size = self.config.get("whisper_model", "base.en")
             print(f"Loading Whisper {model_size}...", file=sys.stderr)
-            self.whisper = whisper.load_model(model_size)
+            # Force CPU to avoid CUDA compatibility issues with MX130
+            self.whisper = whisper.load_model(model_size, device='cpu')
             print("✓ Whisper loaded", file=sys.stderr)
         except Exception as e:
             print(f"⚠ Whisper unavailable: {e}", file=sys.stderr)

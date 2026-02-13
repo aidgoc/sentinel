@@ -26,6 +26,32 @@ except ImportError:
     print("Install: pip install python-telegram-bot")
     sys.exit(1)
 
+# Check if ollama is available
+try:
+    import ollama
+except ImportError:
+    print("Error: ollama-python not installed")
+    print("Install: pip install ollama")
+    sys.exit(1)
+
+# Voice processing imports
+try:
+    import whisper
+    import numpy as np
+    import soundfile as sf
+    WHISPER_AVAILABLE = True
+except ImportError:
+    logger.warning("Whisper not available - voice messages will not work")
+    WHISPER_AVAILABLE = False
+
+try:
+    sys.path.insert(0, str(Path.home() / "local-talking-llm"))
+    from src.piper_tts import PiperTTSService
+    PIPER_AVAILABLE = True
+except ImportError:
+    logger.warning("Piper TTS not available - voice responses disabled")
+    PIPER_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -46,19 +72,53 @@ MEMORY_DB = Path.home() / ".openclaw-sentinel" / "sentinel_memory.db"
 # Conversation state (simple in-memory for demo)
 user_sessions = {}
 
+# Chat mode (for general LLM conversation)
+chat_mode = {}
+
+# Voice mode settings
+voice_mode = {}
+
+# Initialize Whisper model (lazy loading)
+whisper_model = None
+
+# Initialize Piper TTS (lazy loading)
+piper_tts = None
+
+def get_whisper_model():
+    """Lazy load Whisper model"""
+    global whisper_model
+    if whisper_model is None and WHISPER_AVAILABLE:
+        logger.info("Loading Whisper model...")
+        whisper_model = whisper.load_model("base.en", device="cpu")
+    return whisper_model
+
+def get_piper_tts():
+    """Lazy load Piper TTS"""
+    global piper_tts
+    if piper_tts is None and PIPER_AVAILABLE:
+        logger.info("Loading Piper TTS...")
+        voice_path = os.path.expanduser("~/.local/share/piper/en_US-lessac-medium.onnx")
+        piper_tts = PiperTTSService(voice_path)
+    return piper_tts
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command"""
     user = update.effective_user
+    voice_status = "🎤 Voice messages supported" if WHISPER_AVAILABLE else ""
+
     await update.message.reply_text(
         f"🛡️ Sentinel Active\n\n"
         f"Hello {user.first_name}!\n\n"
         f"Available commands:\n"
         f"/wake - Trigger immediate capture\n"
+        f"/chat - Start conversing with local LLM\n"
+        f"/voicereply - Toggle audio responses\n"
+        f"/endchat - Stop chat mode\n"
         f"/status - System health\n"
         f"/memory - Search conversations\n"
-        f"/stats - Performance metrics\n"
-        f"/help - Show this message"
+        f"/help - Show this message\n\n"
+        f"{voice_status}"
     )
 
 
@@ -147,15 +207,96 @@ async def start_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"❌ Conversation error\n{result.stdout}")
 
 
+async def chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /chat - enable general LLM conversation mode"""
+    user_id = update.effective_user.id
+    chat_mode[user_id] = {
+        "active": True,
+        "history": [
+            {"role": "system", "content": "You are Sentinel, a helpful AI assistant. Keep responses concise and friendly."}
+        ]
+    }
+
+    voice_status = "✓ Voice messages supported" if WHISPER_AVAILABLE else "✗ Voice not available"
+
+    await update.message.reply_text(
+        "💬 Chat mode activated!\n\n"
+        "You can now chat with me using the local LLM (qwen2.5:3b).\n"
+        f"{voice_status}\n\n"
+        "Send text or voice messages!\n"
+        "Use /voicereply to toggle audio responses.\n"
+        "Send /endchat to stop chatting.\n\n"
+        "What would you like to talk about?"
+    )
+
+
+async def voicereply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /voicereply - toggle audio responses"""
+    user_id = update.effective_user.id
+
+    if not PIPER_AVAILABLE:
+        await update.message.reply_text("❌ Piper TTS is not available. Audio responses disabled.")
+        return
+
+    if user_id not in voice_mode:
+        voice_mode[user_id] = True
+        await update.message.reply_text("🔊 Voice replies enabled! I'll send audio responses.")
+    else:
+        del voice_mode[user_id]
+        await update.message.reply_text("🔇 Voice replies disabled. Text only.")
+
+
+async def endchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /endchat - disable chat mode"""
+    user_id = update.effective_user.id
+    if user_id in chat_mode:
+        del chat_mode[user_id]
+        await update.message.reply_text(
+            "👋 Chat mode ended. Use /chat to start again."
+        )
+    else:
+        await update.message.reply_text(
+            "ℹ️ Chat mode is not active."
+        )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle user replies to safety questions"""
+    """Handle user messages - either for safety questions or general chat"""
     user_id = update.effective_user.id
     user_text = update.message.text
 
-    # Check if user has active session
+    # Check if in chat mode
+    if user_id in chat_mode and chat_mode[user_id].get("active"):
+        try:
+            # Add user message to history
+            chat_mode[user_id]["history"].append({"role": "user", "content": user_text})
+
+            # Query Ollama
+            response = ollama.chat(
+                model="qwen2.5:3b",
+                messages=chat_mode[user_id]["history"]
+            )
+
+            assistant_message = response["message"]["content"]
+
+            # Add assistant response to history
+            chat_mode[user_id]["history"].append({"role": "assistant", "content": assistant_message})
+
+            # Keep only last 10 messages to avoid context overflow
+            if len(chat_mode[user_id]["history"]) > 11:  # 1 system + 10 conversation
+                chat_mode[user_id]["history"] = [chat_mode[user_id]["history"][0]] + chat_mode[user_id]["history"][-10:]
+
+            await update.message.reply_text(assistant_message)
+
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error chatting with LLM: {e}")
+
+        return
+
+    # Check if user has active safety question session
     if user_id not in user_sessions:
         await update.message.reply_text(
-            "ℹ️ No active conversation. Use /wake to start monitoring."
+            "ℹ️ No active conversation. Use /wake to start monitoring or /chat to talk with me."
         )
         return
 
@@ -259,6 +400,92 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text[:4000])  # Telegram limit
 
 
+async def handle_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle voice messages from users"""
+    user_id = update.effective_user.id
+
+    if not WHISPER_AVAILABLE:
+        await update.message.reply_text("❌ Whisper is not available. Voice messages not supported.")
+        return
+
+    # Check if in chat mode
+    if user_id not in chat_mode or not chat_mode[user_id].get("active"):
+        await update.message.reply_text(
+            "ℹ️ Please start chat mode first with /chat to use voice messages."
+        )
+        return
+
+    try:
+        await update.message.reply_text("🎤 Processing your voice message...")
+
+        # Download voice file
+        voice_file = await update.message.voice.get_file()
+        voice_path = f"/tmp/voice_{user_id}_{update.message.message_id}.ogg"
+        await voice_file.download_to_drive(voice_path)
+
+        # Transcribe with Whisper
+        model = get_whisper_model()
+        if model is None:
+            await update.message.reply_text("❌ Failed to load Whisper model")
+            return
+
+        result = model.transcribe(voice_path, language="en", fp16=False)
+        transcribed_text = result["text"].strip()
+
+        # Clean up voice file
+        os.remove(voice_path)
+
+        if not transcribed_text:
+            await update.message.reply_text("❌ Could not transcribe audio. Please try again.")
+            return
+
+        # Show transcription
+        await update.message.reply_text(f"📝 You said: \"{transcribed_text}\"")
+
+        # Process with LLM
+        chat_mode[user_id]["history"].append({"role": "user", "content": transcribed_text})
+
+        response = ollama.chat(
+            model="qwen2.5:3b",
+            messages=chat_mode[user_id]["history"]
+        )
+
+        assistant_message = response["message"]["content"]
+        chat_mode[user_id]["history"].append({"role": "assistant", "content": assistant_message})
+
+        # Keep only last 10 messages
+        if len(chat_mode[user_id]["history"]) > 11:
+            chat_mode[user_id]["history"] = [chat_mode[user_id]["history"][0]] + chat_mode[user_id]["history"][-10:]
+
+        # Send text response
+        await update.message.reply_text(assistant_message)
+
+        # Send voice response if enabled
+        if user_id in voice_mode and voice_mode[user_id]:
+            tts = get_piper_tts()
+            if tts:
+                try:
+                    sample_rate, audio = tts.synthesize(assistant_message)
+
+                    # Save to file
+                    audio_path = f"/tmp/response_{user_id}_{update.message.message_id}.wav"
+                    sf.write(audio_path, audio, sample_rate)
+
+                    # Send audio
+                    with open(audio_path, 'rb') as audio_file:
+                        await update.message.reply_voice(voice=audio_file)
+
+                    # Clean up
+                    os.remove(audio_path)
+
+                except Exception as e:
+                    logger.error(f"TTS error: {e}")
+
+    except Exception as e:
+        logger.error(f"Voice message error: {e}")
+        await update.message.reply_text(f"❌ Error processing voice message: {e}")
+
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /help"""
     await start(update, context)
@@ -277,10 +504,16 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("wake", wake_command))
+    application.add_handler(CommandHandler("chat", chat_command))
+    application.add_handler(CommandHandler("voicereply", voicereply_command))
+    application.add_handler(CommandHandler("endchat", endchat_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("memory", memory_command))
 
-    # Message handler for conversation replies
+    # Voice message handler
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
+
+    # Message handler for conversation replies and chat
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     # Start bot
