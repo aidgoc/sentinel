@@ -1,416 +1,374 @@
-# 🛡️ Project Sentinel - Ambient Intelligence Agent
+# 🛡️ Sentinel V8
 
-> **Privacy-First Safety Monitoring** - Vision-based presence detection with conversational safety checks. Runs entirely on-device.
+> **Privacy-First AI Assistant with Voice, Vision & Chat**
+> Run your own AI assistant entirely on your hardware. No cloud required.
 
-[![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)]()
-[![Python](https://img.shields.io/badge/python-3.11+-green.svg)]()
-[![OpenClaw](https://img.shields.io/badge/openclaw-2026.2.3-orange.svg)]()
+[![Version](https://img.shields.io/badge/version-8.0.0-blue.svg)](https://github.com/aidgoc/sentinel/releases/tag/v8.0.0)
+[![Platform](https://img.shields.io/badge/platform-Linux-green.svg)]()
+[![Python](https://img.shields.io/badge/python-3.11+-yellow.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
 ---
 
-## ✨ Features
+## ✨ What is Sentinel?
 
-### 🎯 Core Capabilities
-- **👁️ Vision Detection** - YOLOv8-nano person detection on MX130 GPU (<50ms inference)
-- **🔄 Autonomous Heartbeat** - Captures every 60 seconds with temporal filtering (anti-flicker)
-- **💬 Safety Protocol** - 3-question safety workflow via local LLM (qwen2.5:3b)
-- **🧠 Persistent Memory** - SQLite + vector embeddings for conversation history
-- **📱 Telegram Control** - `/wake`, `/status`, `/memory` commands
-- **🔐 Security Hardened** - AppArmor profiles, environment-based secrets, sandboxed execution
+Sentinel is a **100% local AI assistant** that combines:
+- 🧠 **Local LLM** (Ollama with Qwen 2.5)
+- 🎤 **Voice Input** (Whisper speech-to-text)
+- 🔊 **Voice Output** (Piper text-to-speech)
+- 👁️ **Computer Vision** (YOLOv8 person detection)
+- 💬 **Dual Interface** (Telegram bot + local CLI)
+- 🧠 **Persistent Memory** (SQLite with vector embeddings)
 
-### 🏗️ Architecture
+**Everything runs on your device. Your data never leaves your machine.**
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Heartbeat (60s) → Vision Capture → YOLO Detection (MX130)  │
-└──────────────────────┬──────────────────────────────────────┘
-                       ↓
-          ┌────────────┴─────────────┐
-          ↓                          ↓
-    person_present=false       person_present=true
-          ↓                          ↓
-    [Continue Loop]           ┌──────────────┐
-                              │ Conversation │
-                              │   Skill      │
-                              └──────┬───────┘
-                                     ↓
-                              ┌──────────────┐
-                              │  3 Questions │
-                              │  via Ollama  │
-                              └──────┬───────┘
-                                     ↓
-                              ┌──────────────┐
-                              │ SQLite + RAG │
-                              │    Memory    │
-                              └──────────────┘
-```
+---
 
-### 📊 Resource Budget (HP Pavilion x360)
-| Component | Memory | Notes |
-|-----------|--------|-------|
-| OpenClaw Core | <10MB | Ultra-lightweight orchestrator |
-| YOLOv8-nano | 200MB VRAM | MX130 GPU |
-| Ollama (qwen2.5:3b) | 2GB RAM | CPU inference |
-| SQLite + Vectors | 500MB RAM | Persistent storage |
-| System Overhead | 4GB RAM | OS + background |
-| **Total** | ~7GB / 12GB | 5GB headroom |
+## 🎯 Features
+
+### Core Capabilities
+- ✅ **Text Chat** - Conversational AI powered by local LLM
+- ✅ **Voice Conversations** - Speak and listen using Whisper + Piper
+- ✅ **Vision Detection** - Real-time person detection via webcam
+- ✅ **Memory System** - Persistent conversation history with vector search
+- ✅ **Telegram Integration** - Control via Telegram bot (optional)
+- ✅ **Local CLI** - Full-featured command-line interface
+
+### Privacy & Security
+- 🔐 **100% Local Processing** - No cloud APIs required
+- 🔒 **Encrypted Storage** - Sensitive data protected
+- 🚫 **No Telemetry** - Zero tracking or analytics
+- ⚡ **Offline Capable** - Works without internet (Telegram optional)
+
+---
+
+## 📋 System Requirements
+
+### Minimum Hardware
+- **CPU**: 4 cores (Intel i5 or equivalent)
+- **RAM**: 8GB (12GB recommended)
+- **Storage**: 10GB free space
+- **GPU**: Optional (NVIDIA with CUDA 7.0+)
+
+### Software Requirements
+- **OS**: Linux (Ubuntu 20.04+, Debian 11+, or similar)
+- **Python**: 3.11 or higher
+- **Optional**: Webcam for vision features
+- **Optional**: Microphone for voice input
+
+### Tested On
+- ✅ Ubuntu 22.04 LTS
+- ✅ Debian 12
+- ✅ Pop!_OS 22.04
+- ✅ HP Pavilion x360 (i7-8550U, 12GB RAM, MX130)
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- **Hardware**: 12GB RAM, 4GB VRAM GPU (MX130 or better), webcam
-- **OS**: Linux (Ubuntu 22.04+, Debian 12+)
-- **Software**: Python 3.11+, Ollama, OpenClaw
-
-### Installation
+### One-Line Installation
 
 ```bash
-# 1. Clone or navigate to Sentinel directory
-cd ~/sentinel
-
-# 2. Run automated installer
-chmod +x scripts/install.sh
-./scripts/install.sh
-
-# 3. Set environment variables
-export TELEGRAM_BOT_TOKEN="your_bot_token_here"
-export ANTHROPIC_API_KEY="your_api_key_here"  # Optional cloud fallback
-
-# 4. Run tests
-./scripts/test_sentinel.sh
-
-# 5. Start Sentinel
-sudo systemctl enable sentinel
-sudo systemctl start sentinel
-
-# 6. Monitor logs
-journalctl -u sentinel -f
+curl -fsSL https://raw.githubusercontent.com/aidgoc/sentinel/master/install.sh | bash
 ```
 
-### Manual Testing
+### Manual Installation
 
 ```bash
-# Activate environment
-source ~/sentinel/.venv/bin/activate
+# Clone repository
+git clone https://github.com/aidgoc/sentinel.git
+cd sentinel
 
-# Test vision skill
-python3 ~/sentinel/skills/vision_skill.py
-# Expected output: {"person_present": bool, "confidence": float, "image_path": "...", "timestamp": "..."}
+# Run installer
+chmod +x install.sh
+./install.sh
 
-# Test conversation skill
-echo '{"session_id":"test","trigger_conversation":true}' | \
-  python3 ~/sentinel/skills/conversation_skill.py
-# Expected output: {"action": "ask", "question": "What task are you performing?", ...}
+# Configure (add your Telegram bot token)
+nano .env
 
-# Test Ollama
-curl http://localhost:11434/api/tags | jq '.models[] | select(.name == "qwen2.5:3b")'
+# Start local CLI
+./cli
 ```
 
 ---
 
-## 📁 Project Structure
+## 📖 Usage
+
+### Local CLI Interface
+
+Start the interactive menu:
+
+```bash
+cd ~/sentinel
+./cli
+```
+
+**Menu Options:**
+1. 💬 **Chat with LLM** - Text-based conversation
+2. 🎤 **Voice Chat** - Speak and listen
+3. 📸 **Capture Image** - Vision detection
+4. 📊 **System Status** - Health check
+5. 🧠 **View History** - Chat logs
+6. ⚙️ **Settings** - Configuration
+7. ❌ **Exit**
+
+### Telegram Bot
+
+**Setup:**
+1. Get bot token from [@BotFather](https://t.me/botfather)
+2. Add token to `~/sentinel/.env`
+3. Start bot: `cd ~/sentinel && ./start_bot.sh`
+
+**Commands:**
+- `/chat` - Start conversation
+- `/voicereply` - Toggle audio responses
+- `/wake` - Trigger vision capture
+- `/status` - System health
+- `/memory` - View chat history
+
+**Voice Messages:**
+- Send voice notes in Telegram
+- Bot transcribes with Whisper
+- Responds with text or audio
+
+---
+
+## 🏗️ Architecture
 
 ```
-sentinel/
-├── config/
-│   └── sentinel.yaml          # Main configuration
-│
-├── skills/
-│   ├── vision_skill.py        # YOLOv8 person detection (Engineer #2)
-│   └── conversation_skill.py  # Safety questioning (Engineer #3)
-│
-├── workflows/
-│   └── safety_protocols.yaml  # State machines & testing (Engineer #5)
-│
-├── scripts/
-│   ├── install.sh             # Automated setup
-│   ├── run_sentinel.sh        # Main runtime loop
-│   └── test_sentinel.sh       # Integration tests
-│
-├── models/
-│   └── yolov8n.onnx          # YOLO ONNX model (auto-downloaded)
-│
-├── logs/
-│   └── sentinel.log          # Application logs
-│
-├── Dockerfile                 # Container image (Engineer #4)
-├── docker-compose.yml         # Production deployment
-└── requirements.txt           # Python dependencies
+┌─────────────────────────────────────────────┐
+│          SENTINEL V8 ARCHITECTURE           │
+├─────────────────────────────────────────────┤
+│                                             │
+│  ┌───────────┐         ┌────────────┐      │
+│  │ Telegram  │◄────────┤   Local    │      │
+│  │    Bot    │         │    CLI     │      │
+│  └─────┬─────┘         └──────┬─────┘      │
+│        │                      │             │
+│        └──────────┬───────────┘             │
+│                   │                         │
+│         ┌─────────▼─────────┐               │
+│         │  Core Controller  │               │
+│         └─────────┬─────────┘               │
+│                   │                         │
+│    ┌──────────────┼──────────────┐          │
+│    │              │              │          │
+│ ┌──▼──┐      ┌───▼────┐    ┌───▼───┐       │
+│ │ LLM │      │ Vision │    │ Voice │       │
+│ │Ollam│      │ YOLO   │    │Whisper│       │
+│ └──┬──┘      └───┬────┘    │ Piper │       │
+│    │             │          └───┬───┘       │
+│    │             │              │           │
+│    └─────────────┼──────────────┘           │
+│                  │                          │
+│            ┌─────▼──────┐                   │
+│            │   SQLite   │                   │
+│            │   Memory   │                   │
+│            └────────────┘                   │
+│                                             │
+└─────────────────────────────────────────────┘
 ```
+
+---
+
+## 📦 Components
+
+### AI Models
+| Component | Model | Size | Purpose |
+|-----------|-------|------|---------|
+| **LLM** | Qwen 2.5 (3B) | 1.9GB | Conversation |
+| **STT** | Whisper base.en | 140MB | Speech-to-text |
+| **TTS** | Piper lessac-medium | 61MB | Text-to-speech |
+| **Vision** | YOLOv8-nano | 6MB | Person detection |
+| **Embeddings** | MiniLM-L6-v2 | 90MB | Vector search |
+
+### Skills
+- `conversation_skill.py` - LLM chat with memory
+- `vision_skill.py` - Image capture + YOLO detection
+- `voice_chat.py` - Voice input/output handler
+- `telegram_bot.py` - Telegram integration
+- `sentinel_cli.py` - Local CLI interface
 
 ---
 
 ## ⚙️ Configuration
 
+### Environment Variables
+
+Edit `~/sentinel/.env`:
+
+```bash
+# Required for Telegram bot
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+
+# Optional: Cloud LLM fallback
+# ANTHROPIC_API_KEY=your_api_key_here
+```
+
+### Config File
+
 Edit `~/sentinel/config/sentinel.yaml`:
 
 ```yaml
-# LLM Backend
 llm:
   provider: "ollama"
   model: "qwen2.5:3b"
-  fallback:
-    provider: "anthropic"  # Cloud fallback
-    model: "claude-3-haiku-20240307"
+  temperature: 0.7
 
-# Vision Detection
 vision:
-  detector:
-    confidence_threshold: 0.85
-    temporal_frames: 3  # Require 3 consecutive detections
+  confidence_threshold: 0.85
+  temporal_frames: 3
 
-# Conversation Protocol
 conversation:
   questions:
     - "What task are you performing?"
     - "Are safety protocols confirmed?"
     - "Do you require tool access?"
-
-# Heartbeat Scheduler
-scheduler:
-  heartbeat_interval: 60  # seconds
-```
-
----
-
-## 🎮 Usage
-
-### Telegram Commands
-
-```bash
-/wake   # Trigger immediate vision capture
-/status # System health check
-/memory # Search conversation history
-/stats  # Performance metrics
-```
-
-### Systemd Service
-
-```bash
-# Start
-sudo systemctl start sentinel
-
-# Stop
-sudo systemctl stop sentinel
-
-# Status
-sudo systemctl status sentinel
-
-# Logs
-journalctl -u sentinel -f
-```
-
-### Docker Deployment
-
-```bash
-# Build and run
-docker-compose up -d
-
-# View logs
-docker-compose logs -f sentinel
-
-# Stop
-docker-compose down
 ```
 
 ---
 
 ## 🧪 Testing
 
-### Integration Tests
+### Quick System Test
 
 ```bash
-./scripts/test_sentinel.sh
+cd ~/sentinel
+./cli
+# Select: 4 (System Status)
 ```
 
-**Tests Performed:**
-1. ✅ Vision skill execution
-2. ✅ Conversation skill execution
-3. ✅ Ollama connectivity
-4. ✅ YOLO model availability
-5. ✅ CUDA/GPU detection
-6. ✅ Storage configuration
-7. ✅ SQLite database
-8. ✅ Configuration validation
-
-### Stress Test (48 Hours)
+### Test Individual Components
 
 ```bash
-# Monitor metrics
-watch -n 5 '
-  echo "=== Sentinel Metrics ==="
-  systemctl status sentinel | grep Memory
-  ls -lh ~/sentinel_captures/$(date +%Y-%m-%d) | wc -l
-  du -sh ~/.openclaw-sentinel/sentinel_memory.db
-'
-```
+# Activate environment
+source ~/sentinel/.venv/bin/activate
 
-**Target Metrics:**
-- Capture latency: <500ms
-- False positive rate: <1%
-- Memory growth: <10MB/hour
-- Conversation completion: >95%
-
----
-
-## 🔒 Security
-
-### Threat Model
-- **AI-Generated Code**: OpenClaw/PicoClaw is 95% AI-generated → requires sandboxing
-- **Plaintext Secrets**: Config stores tokens → use environment variables
-- **LFI Attacks**: Image path validation prevents directory traversal
-
-### Mitigations
-
-**1. Environment-Based Secrets**
-```bash
-# Never store in config files
-export TELEGRAM_BOT_TOKEN="..."
-export ANTHROPIC_API_KEY="..."
-```
-
-**2. AppArmor Profile**
-```bash
-# Restrict file access
-sudo apparmor_parser -r /etc/apparmor.d/sentinel
-sudo aa-enforce /usr/local/bin/sentinel
-```
-
-**3. Resource Limits**
-```ini
-# /etc/systemd/system/sentinel.service
-MemoryMax=10G
-CPUQuota=80%
-NoNewPrivileges=yes
-ProtectSystem=strict
-```
-
-**4. Input Validation**
-- Image paths: `^~/sentinel_captures/\d{4}-\d{2}-\d{2}/[\w\-]+\.jpg$`
-- Telegram user whitelist
-- No command execution from LLM output
-
----
-
-## 🐛 Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| **"Camera failed to open"** | Check `/dev/video0` exists, grant permissions: `sudo usermod -aG video $USER` |
-| **"YOLO model not found"** | Run `./scripts/install.sh` to download |
-| **"Ollama connection failed"** | Start service: `ollama serve` or `systemctl start ollama` |
-| **"CUDA not available"** | Install NVIDIA drivers: `nvidia-smi` should show MX130 |
-| **"Out of memory"** | Check `free -h`, reduce `qwen2.5:3b` to `phi3:mini` |
-| **"Vision skill slow"** | Verify GPU usage: `nvidia-smi` during capture |
-
-### Health Checks
-
-```bash
-# Check Ollama
+# Test Ollama
 curl http://localhost:11434/api/tags
 
-# Check OpenClaw
-openclaw --version
+# Test vision
+python3 ~/sentinel/skills/vision_skill.py
 
-# Check GPU
-nvidia-smi
+# Test conversation
+echo '{"session_id":"test","trigger_conversation":true}' | \
+  python3 ~/sentinel/skills/conversation_skill.py
+```
 
+---
+
+## 🔧 Troubleshooting
+
+### Ollama Not Starting
+```bash
+# Start manually
+ollama serve
+
+# Or via systemd
+sudo systemctl start ollama
+```
+
+### Python Dependencies
+```bash
+cd ~/sentinel
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Camera Not Working
+```bash
 # Check camera
 v4l2-ctl --list-devices
 
-# Check storage
-df -h ~/sentinel_captures
+# Test with OpenCV
+python3 -c "import cv2; cap = cv2.VideoCapture(0); print('OK' if cap.isOpened() else 'FAIL')"
+```
+
+### Voice Not Working
+```bash
+# Test microphone
+arecord -d 3 test.wav && aplay test.wav
+
+# Force CPU mode (if CUDA issues)
+export CUDA_VISIBLE_DEVICES=""
 ```
 
 ---
 
-## 📊 Performance Benchmarks
+## 📚 Documentation
 
-Tested on **HP Pavilion x360** (i7-8550U, 12GB RAM, MX130):
-
-| Metric | Target | Actual |
-|--------|--------|--------|
-| OpenClaw Boot | <1s | 0.8s |
-| OpenClaw Memory | <10MB | 8MB |
-| Vision Pipeline | <500ms | 420ms |
-| YOLO Inference | <50ms | 38ms (GPU) |
-| Ollama Response | <2s | 1.7s |
-| SQLite Query | <100ms | 65ms |
-
-**72-Hour Stability Test:**
-- ✅ Zero crashes
-- ✅ Memory growth: 6MB/hour
-- ✅ False positive rate: 0.8%
-- ✅ Disk usage: 2.1GB (7 days captures)
+- **[Quick Start Guide](QUICK_START.md)** - Get started in 5 minutes
+- **[Voice & CLI Guide](VOICE_TELEGRAM_GUIDE.md)** - Complete voice features guide
+- **[Deployment Guide](DEPLOYMENT.md)** - Production deployment
+- **[Command Reference](COMMAND_REFERENCE.md)** - All commands
 
 ---
 
-## 🗺️ Roadmap
+## 🛣️ Roadmap
 
-### Week 1: Core & Vision ✅
-- [x] OpenClaw deployment
-- [x] Vision skill with YOLO
-- [x] Telegram integration skeleton
-- [x] Docker configuration
+### V8 (Current) ✅
+- ✅ Local LLM integration
+- ✅ Voice input/output
+- ✅ Telegram bot with voice messages
+- ✅ Local CLI interface
+- ✅ Vision detection
+- ✅ Persistent memory
 
-### Week 2: Intelligence & Conversation 🔄
-- [ ] Ollama qwen2.5:3b integration
-- [ ] 3-question safety workflow
-- [ ] SQLite RAG memory
-- [ ] Telegram webhook handlers
-
-### Week 3: Resilience & Polish 📋
-- [ ] Cloud fallback (Anthropic)
-- [ ] 48-hour stress test
-- [ ] AppArmor enforcement
-- [ ] Production deployment guide
-
-### Future Enhancements 🚀
-- [ ] Wake word detection (audio trigger)
+### Future Versions
 - [ ] Multi-camera support
-- [ ] Custom workflow editor (GUI)
-- [ ] Export to Prometheus metrics
+- [ ] Custom wake word detection
+- [ ] Web dashboard
 - [ ] Mobile app (React Native)
+- [ ] Docker deployment
+- [ ] Kubernetes support
+- [ ] Plugin system
 
 ---
 
 ## 🤝 Contributing
 
-This is a 5-engineer project following the directive in the repository root. Each component is modular:
+Contributions welcome! Please:
 
-- **Engineer #1**: OpenClaw orchestration (`scripts/`)
-- **Engineer #2**: Vision pipeline (`skills/vision_skill.py`)
-- **Engineer #3**: LLM & memory (`skills/conversation_skill.py`)
-- **Engineer #4**: Security & DevOps (`Dockerfile`, systemd)
-- **Engineer #5**: Workflows & testing (`workflows/`, `scripts/test_sentinel.sh`)
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open pull request
 
 ---
 
 ## 📄 License
 
-MIT License - See LICENSE file
+MIT License - See [LICENSE](LICENSE) file
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **[OpenClaw](https://github.com/sipeed/openclaw)** - Ultra-lightweight AI agent framework
-- **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)** - Real-time object detection
 - **[Ollama](https://ollama.ai)** - Local LLM serving
-- **[Sentence Transformers](https://www.sbert.net/)** - Semantic embeddings
+- **[OpenAI Whisper](https://github.com/openai/whisper)** - Speech recognition
+- **[Piper TTS](https://github.com/rhasspy/piper)** - Text-to-speech
+- **[Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics)** - Object detection
+- **[Sentence Transformers](https://www.sbert.net/)** - Embeddings
 
 ---
 
 ## 📞 Support
 
-- **Issues**: File in GitHub repository
-- **Security**: Report to security@sentinel.local
-- **Logs**: `journalctl -u sentinel -f`
+- **Issues**: [GitHub Issues](https://github.com/aidgoc/sentinel/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/aidgoc/sentinel/discussions)
+- **Email**: support@sentinel.local
 
 ---
 
-**Status**: ✅ Week 1 Complete | **Version**: 1.0.0 | **Hardware**: HP Pavilion x360
+## ⭐ Star History
 
-**Made for privacy-conscious ambient intelligence**
+If you find Sentinel useful, please star the repository!
+
+---
+
+**Built with ❤️ for privacy and security**
+
+**Sentinel V8** - Your personal AI assistant, running entirely on your hardware.
+
+🛡️ **Stay private. Stay secure. Stay in control.**
