@@ -16,9 +16,20 @@ from pathlib import Path
 import os
 
 try:
-    import onnxruntime as ort
+    from ultralytics import YOLO as _YOLO
+    import torch
+    _USE_ULTRALYTICS = True
 except ImportError:
-    print(json.dumps({"error": "onnxruntime not installed", "person_present": False}))
+    _USE_ULTRALYTICS = False
+
+try:
+    import onnxruntime as ort
+    _USE_ORT = True
+except ImportError:
+    _USE_ORT = False
+
+if not _USE_ULTRALYTICS and not _USE_ORT:
+    print(json.dumps({"error": "neither ultralytics nor onnxruntime installed", "person_present": False}))
     sys.exit(1)
 
 
@@ -68,25 +79,29 @@ class VisionSkill:
             consecutive=self.temporal_frames
         )
 
-        # Load YOLO model (ONNX Runtime with CUDA)
-        self.session = None
+        # Load YOLO model — prefer ultralytics+torch (GPU-compatible on sm_50)
+        self.session = None   # ort session (fallback only)
+        self.yolo = None      # ultralytics model
         self._load_model()
 
     def _load_model(self):
-        """Load YOLO ONNX model with CUDA provider for MX130"""
-        if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"YOLO model not found: {self.model_path}")
+        """Load YOLO model. Prefers ultralytics .pt (torch GPU), falls back to onnxruntime CPU."""
+        pt_path = os.path.expanduser("~/sentinel/models/yolov8n.pt")
+        onnx_path = self.model_path
 
-        # Try CUDA first (MX130), fallback to CPU
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-
-        try:
-            self.session = ort.InferenceSession(self.model_path, providers=providers)
-            actual_provider = self.session.get_providers()[0]
-            print(f"[DEBUG] YOLO loaded on {actual_provider}", file=sys.stderr)
-        except Exception as e:
-            print(f"[ERROR] Failed to load YOLO: {e}", file=sys.stderr)
-            raise
+        if _USE_ULTRALYTICS and os.path.exists(pt_path):
+            device = "0" if torch.cuda.is_available() else "cpu"
+            self.yolo = _YOLO(pt_path)
+            # Warm up so device is confirmed
+            dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+            self.yolo.predict(dummy, device=device, verbose=False)
+            self._device = device
+            print(f"[DEBUG] YOLO loaded via ultralytics on device={device}", file=sys.stderr)
+        elif _USE_ORT and os.path.exists(onnx_path):
+            self.session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+            print(f"[DEBUG] YOLO loaded via onnxruntime CPU", file=sys.stderr)
+        else:
+            raise FileNotFoundError("No YOLO model found (checked yolov8n.pt and yolov8n.onnx)")
 
     def capture_image(self):
         """Capture image from camera with timestamp"""
@@ -122,42 +137,36 @@ class VisionSkill:
 
     def detect_person(self, image_path):
         """Run YOLO inference, detect persons (class 0)"""
-        # Read and preprocess image
         img = cv2.imread(image_path)
         if img is None:
             return 0.0, "Failed to read image"
 
-        # YOLOv8 expects 640x640 RGB
+        if self.yolo is not None:
+            # ultralytics path (torch, GPU on sm_50)
+            results = self.yolo.predict(img, device=self._device, verbose=False)
+            max_confidence = 0.0
+            boxes = results[0].boxes
+            if boxes is not None and len(boxes):
+                for cls, conf in zip(boxes.cls.cpu().numpy(), boxes.conf.cpu().numpy()):
+                    if int(cls) == 0 and float(conf) > max_confidence:
+                        max_confidence = float(conf)
+            return max_confidence, None
+
+        # onnxruntime fallback (CPU)
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (640, 640))
-        img_normalized = img_resized.astype(np.float32) / 255.0
-        img_transposed = img_normalized.transpose(2, 0, 1)  # HWC -> CHW
-        img_batch = np.expand_dims(img_transposed, axis=0)  # Add batch dimension
-
-        # Inference
-        input_name = self.session.get_inputs()[0].name
-        outputs = self.session.run(None, {input_name: img_batch})
-
-        # Parse detections (YOLOv8 output format)
-        # outputs[0] shape: [1, 84, 8400] or similar
-        detections = outputs[0][0]  # Remove batch dimension
-
-        # Find person detections (class 0)
+        img_batch = np.expand_dims(
+            cv2.resize(img_rgb, (640, 640)).astype(np.float32).transpose(2, 0, 1) / 255.0,
+            axis=0,
+        )
+        outputs = self.session.run(None, {self.session.get_inputs()[0].name: img_batch})
+        detections = outputs[0][0].T
         max_confidence = 0.0
-
-        # YOLOv8 format: [x, y, w, h, class0_conf, class1_conf, ...]
-        # Transpose to [8400, 84]
-        detections = detections.T
-
-        for detection in detections:
-            # Class confidences start at index 4
-            class_confidences = detection[4:]
-            class_id = np.argmax(class_confidences)
-            confidence = class_confidences[class_id]
-
-            if class_id == 0 and confidence > max_confidence:  # Person class
-                max_confidence = float(confidence)
-
+        for det in detections:
+            class_confidences = det[4:]
+            class_id = int(np.argmax(class_confidences))
+            confidence = float(class_confidences[class_id])
+            if class_id == 0 and confidence > max_confidence:
+                max_confidence = confidence
         return max_confidence, None
 
     def cleanup_old_captures(self):
@@ -240,7 +249,7 @@ def main():
 
     # Load configuration
     config = {
-        "model_path": context.get("model_path", "~/sentinel/models/yolov8n.onnx"),
+        "model_path": context.get("model_path", "~/sentinel/models/yolov8n.pt"),
         "capture_base": context.get("capture_base", "~/sentinel_captures"),
         "confidence_threshold": context.get("confidence_threshold", 0.85),
         "temporal_frames": context.get("temporal_frames", 3),

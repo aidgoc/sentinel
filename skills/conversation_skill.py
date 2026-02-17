@@ -35,8 +35,7 @@ class SentinelMemory:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         self.conn = sqlite3.connect(self.db_path)
-        # Force CPU usage to avoid CUDA compatibility issues with MX130
-        self.encoder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')  # 384-dim, CPU
+        self.encoder = SentenceTransformer('all-MiniLM-L6-v2', device='cuda')
         self._init_schema()
 
     def _init_schema(self):

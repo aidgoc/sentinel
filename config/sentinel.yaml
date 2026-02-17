@@ -31,7 +31,7 @@ vision:
   detector:
     model: "yolov8n"
     onnx_path: "~/sentinel/models/yolov8n.onnx"
-    device: "cuda:0"  # MX130 GPU
+    device: "cuda:0"
     confidence_threshold: 0.85
     temporal_frames: 3  # Anti-flicker: require 3 consecutive detections
 

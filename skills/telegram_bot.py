@@ -5,11 +5,19 @@ Handles Telegram commands and webhook for conversation replies
 """
 
 import os
+import re
 import sys
 import json
 import logging
 import asyncio
 from pathlib import Path
+
+# DuckDuckGo search (no API key needed)
+try:
+    from ddgs import DDGS
+    SEARCH_AVAILABLE = True
+except ImportError:
+    SEARCH_AVAILABLE = False
 
 # Check if python-telegram-bot is available
 try:
@@ -113,6 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Available commands:\n"
         f"/wake - Trigger immediate capture\n"
         f"/chat - Start conversing with local LLM\n"
+        f"/search <query> - Web search + LLM summary\n"
         f"/voicereply - Toggle audio responses\n"
         f"/endchat - Stop chat mode\n"
         f"/status - System health\n"
@@ -268,8 +277,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Check if in chat mode
     if user_id in chat_mode and chat_mode[user_id].get("active"):
         try:
+            # Auto-search: if message looks like a search query, prepend results
+            search_context = ""
+            if SEARCH_AVAILABLE and SEARCH_INTENT_PATTERN.match(user_text):
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+                search_context = _ddg_search(user_text, max_results=3)
+
+            # Build user content (with search context injected if available)
+            user_content = user_text
+            if search_context:
+                user_content = (
+                    f"{user_text}\n\n"
+                    f"[Web search results for context:]\n{search_context}"
+                )
+
             # Add user message to history
-            chat_mode[user_id]["history"].append({"role": "user", "content": user_text})
+            chat_mode[user_id]["history"].append({"role": "user", "content": user_content})
 
             # Query Ollama
             response = ollama.chat(
@@ -491,6 +514,74 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await start(update, context)
 
 
+# --- Search helpers ---
+
+SEARCH_INTENT_PATTERN = re.compile(
+    r"^(search( for)?|look up|find( out)?|google|what is|who is|when (is|was|did)|where is|how (do|does|can|to))\b",
+    re.IGNORECASE,
+)
+
+
+def _ddg_search(query: str, max_results: int = 4) -> str:
+    """Run DuckDuckGo search and return a compact formatted string."""
+    if not SEARCH_AVAILABLE:
+        return ""
+    try:
+        results = list(DDGS().text(query, max_results=max_results))
+    except Exception:
+        return ""
+    if not results:
+        return ""
+    lines = []
+    for i, r in enumerate(results, 1):
+        title = r.get("title", "")
+        body = r.get("body", "")[:200]
+        url = r.get("href", "")
+        lines.append(f"[{i}] {title}\n    {body}\n    {url}")
+    return "\n\n".join(lines)
+
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/search <query> — DuckDuckGo + LLM summary"""
+    if not SEARCH_AVAILABLE:
+        await update.message.reply_text("❌ Search not available (ddgs not installed)")
+        return
+
+    query = " ".join(context.args) if context.args else ""
+    if not query:
+        await update.message.reply_text("Usage: /search <your query>")
+        return
+
+    await update.message.reply_text(f"🔍 Searching: {query}...")
+
+    search_results = _ddg_search(query)
+    if not search_results:
+        await update.message.reply_text("❌ No results found.")
+        return
+
+    # Ask the LLM to summarise
+    prompt = (
+        f"Answer this question based on the web search results below. "
+        f"Be concise (3-5 sentences max).\n\n"
+        f"Question: {query}\n\n"
+        f"Search results:\n{search_results}"
+    )
+    try:
+        response = ollama.chat(
+            model="qwen2.5:3b",
+            messages=[
+                {"role": "system", "content": "You are Sentinel, a helpful assistant. Summarise search results concisely."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        summary = response["message"]["content"]
+    except Exception as e:
+        # Fall back to raw results if LLM is unavailable
+        summary = f"(LLM unavailable: {e})\n\n{search_results}"
+
+    await update.message.reply_text(f"🔍 *{query}*\n\n{summary}", parse_mode="Markdown")
+
+
 def main():
     """Start Telegram bot"""
     if not BOT_TOKEN:
@@ -509,6 +600,7 @@ def main():
     application.add_handler(CommandHandler("endchat", endchat_command))
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("memory", memory_command))
+    application.add_handler(CommandHandler("search", search_command))
 
     # Voice message handler
     application.add_handler(MessageHandler(filters.VOICE, handle_voice_message))
